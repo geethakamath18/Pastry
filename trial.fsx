@@ -12,7 +12,7 @@ open Akka.FSharp
 open System.Diagnostics
 
 let random = Random()
-let m=int(2.0**128.0)-1 //Maximum nodeID possible
+// let m=int(2.0**128.0)-1 //Maximum nodeID possible
 let mutable r=0; // Random ID generated
 // let Pastry = System.create "system" <| Configuration.defaultConfig()
 // let mutable nodeGenerated = new List<int>();
