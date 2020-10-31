@@ -50,7 +50,7 @@ let PastryNode(mailbox: Actor<_>) =
     let mutable samePrefix =0;
     let mutable b=0;
     
-    //Function to perform prefix matching of 2 nodeIDs
+    // Function to perform prefix matching of 2 nodeIDs
     let checkPrefix(string1: string, string2: string)=
         let mutable j=0;
         while j<string1.Length && string1.Chars(j)<>string2.Chars(j) do
@@ -58,7 +58,7 @@ let PastryNode(mailbox: Actor<_>) =
         j
     
 
-    //Function to convert a base 10 integer to a base 4 number and then converting it to a string
+    // Function to convert a base 10 integer to a base 4 number and then converting it to a string
     let toBase4String( num:int, length:int)=
         let mutable res="";
         let targetBase=4;
@@ -68,35 +68,35 @@ let PastryNode(mailbox: Actor<_>) =
         while value>0 do
             res<-string "0123456789ABCDEF".[value%targetBase]+res;
             value<-value/targetBase;
-        let diff= length-res.Length;
+        let diff= length-res.Length; // Adding zeroes if the ID isn't long enough 
         if diff>0 then
             let mutable j=0;
             while j<diff do
-                res<-res+string 0;
+                res<-res+string 0; // Converting 0 to string and padding the ID with it
                 j<-j+1;
         res
     
-    //Function to get largest element in an array/list
+    // Function to get largest element in an array/list
     let getMax(a:List<int>)=
         let mutable j=0;
         let mutable max=0;
         let mutable maxIndex=(-1);
         for i in a do
             if i>max then
-                max<-i;
-                maxIndex <-j;
+                max<-i; // Maximum element
+                maxIndex <-j; // Index of maximum element
             j <- j+1;
         max, maxIndex
 
-    //Function to get smallest element in an array/list
+    // Function to get smallest element in an array/list
     let getMin(a:List<int>)=
         let mutable j=0;
         let mutable min=0;
         let mutable minIndex=(-1);
         for i in a do
             if i<min then
-                min<-i;
-                minIndex <-j;
+                min<-i; // Minimum element
+                minIndex <-j; // Index of minimum element
             j <- j+1;
         min, minIndex
 
@@ -106,12 +106,12 @@ let PastryNode(mailbox: Actor<_>) =
             l1.Add(i)
         l1
 
-    //Function to create Leaf Set 
+    // Function to create Leaf Set 
     let addBuffer(all: List<int>)=
         for i in all do
             // Adding node to larger leaf set
             if i>myID && not(largerLeaf.Contains(i)) then
-                if largerLeaf.Count<4 then
+                if largerLeaf.Count<4 then // If leaf set isn't full, add node to leaf set
                     largerLeaf.Add(i);
                 else 
                     let m, mi=getMax(largerLeaf);
@@ -120,7 +120,7 @@ let PastryNode(mailbox: Actor<_>) =
                         largerLeaf.Add(i);
             // Adding node to smaller leaf set
             else if i<myID  && not(smallerLeaf.Contains(i)) then
-                if smallerLeaf.Count<4 then
+                if smallerLeaf.Count<4 then // If leaf set isn't full, add node to leaf set
                     smallerLeaf.Add(i);
                 else 
                     let m, mi=getMin(smallerLeaf);
@@ -129,18 +129,18 @@ let PastryNode(mailbox: Actor<_>) =
                         smallerLeaf.Add(i);
             
             // Checking the routing table KIRIK PART
-            samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(i, b));
+            samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(i, b)); // Performing prefix matching
             let mutable x = toBase4String(string(i), b);
-            x <- int(string(x.[samePrefix]));
+            x <- int(string(x.[samePrefix])); // Index of string after which prefix differs 
             if int(string(routingTable.[samePrefix].[x]))=(-1) then
-                routingTable.[samePrefix].[x]<-i   
+                routingTable.[samePrefix].[x]<-i   // Addinhg entries to routing table if it is empty
 
-    
+    // Function to add node
     let addNode(node: int)=
         // Adding node to larger leaf set
         if node< myID && not(largerLeaf.Contains(node)) then
             if largerLeaf.Count<4 then
-                largerLeaf.Add(node);
+                largerLeaf.Add(node); // If leaf set isn't full, add node to leaf set
             else
                 let m, mi=getMax(largerLeaf);
                 if node<m then
@@ -149,7 +149,7 @@ let PastryNode(mailbox: Actor<_>) =
         // Adding node to smaller leaf set
         else if node< myID && not(smallerLeaf.Contains(node)) then
             if smallerLeaf.Count<4 then
-                smallerLeaf.Add(node);
+                smallerLeaf.Add(node); // If leaf set isn't full, add node to leaf set
             else
                 let m, mi=getMax(smallerLeaf);
                 if node<m then
@@ -172,7 +172,7 @@ let PastryNode(mailbox: Actor<_>) =
                 b <- baseRecieved;
                 for i in[0..3] do
                     temp.Add(-1);
-                idSpace <- int(4.00**float(b));
+                idSpace <- int(4.00**float(b)); 
                 for i in [0 .. b] do
                     routingTable.Add(temp);  
                 // numNodes <- n;
