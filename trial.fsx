@@ -14,13 +14,13 @@ open System.Diagnostics
 let random = Random()
 let m=int(2.0**128.0)-1 //Maximum nodeID possible
 let mutable r=0; // Random ID generated
-let Pastry = System.create "system" <| Configuration.defaultConfig()
-let mutable nodeGenerated = new List<int>();
+// let Pastry = System.create "system" <| Configuration.defaultConfig()
+// let mutable nodeGenerated = new List<int>();
 let mutable numNodes=0;
 let mutable numRequests=0;
 let mutable nodeID=0;
-let mutable masterActor=new List<IActorRef>();
-let mutable pastryNodes=new List<IActorRef>() // Master Actor
+let mutable masterActor=new List<IActorRef>(); // Master Actor
+let mutable pastryNodes=new List<IActorRef>(); 
 let mutable flag=false; 
 let mutable getRandom=0;
 let mutable t= new List<int>();
@@ -33,54 +33,9 @@ type ActorMessageType =
     |   Route of string * int * int * int
     |   AddRow of int * List<int>
     |   AddLeaf of List<int>
-    |   Update of int
-
-
-
-// pastryInit: Function to assign random ID to nodes
-// let pastryInit()=
-//     r <- random.Next(0,m);
-//     while nodeGenerated.Contains(r) do
-//         r <- random.Next(0,m);
-//     r
-
-
-
-// for i=1 to 10 do
-//     nodeID<-pastryInit(); 
-//     printfn "%A" nodeID
-
-// let master (mailbox: Actor<_>) = 
-//     let rec masterloop() = actor{
-//         let! msg =  mailbox.Receive ()
-//         // let mutable dummy = 0;
-//         // let mutable b = 0;
-//         // let mutable nodeIdSpace = 0;
-//         // let mutable randomList = new List<int>();
-//         // let mutable groupOne = new List<int>();
-//         // let mutable groupOnrSize
-//         // match msg with
-//         // |   MasterMessage(numNodes, numRequests) ->
-//         //         b <- int(ceil(Math.Log(float(numNodes)))/Math.Log(4));
-//         //         nodeIdSpace<-int(4.0**float(b));
-
-//         // |Topo (topo, n) -> // Pattern matching for topology
-//         //     match topo with
-//         //     |"full" -> fullTopology(n)
-//         //     |"2D" -> twoDgrid(n)
-//         //     |"line" -> lineTopology(n)
-//         //     |"imp2D" -> imptwoDgrid(n)
-//         //     |_ -> printfn "improper topology select one of these full, 2D, line, imp2D"
-//         |Finished (node) -> // Checking which nodes have converged
-//         //     if not (finish.Contains(node)) then
-//         //         finish.Add(node)
-//         //     if finish.Count >= n-2 then // Checking condition
-//         //         flag <- true
-//         |_ -> printfn "unkown messageType recived"
-//     return! masterloop ()
-//     }      
-//     masterloop()
-// // let args=fsi.CommandLineArgs; 
+    |   Update of int 
+    |   RouteFinish of int * int * int // Master messages
+    |   Master of int * int
 
 let PastryNode(mailbox: Actor<_>) =
     let mutable smallerLeaf = new List<int>();
@@ -175,8 +130,10 @@ let PastryNode(mailbox: Actor<_>) =
             
             // Checking the routing table KIRIK PART
             samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(i, b));
-            if int(string(routingTable.[samePrefix].[toBase4String(string(i),b).Chars(samePrefix)]))=(-1) then
-                routingTable.[samePrefix].[toBase4String(string(i),b).Chars(samePrefix)]<-i   
+            let mutable x = toBase4String(string(i), b);
+            x <- int(string(x.[samePrefix]));
+            if int(string(routingTable.[samePrefix].[x]))=(-1) then
+                routingTable.[samePrefix].[x]<-i   
 
     
     let addNode(node: int)=
@@ -198,11 +155,13 @@ let PastryNode(mailbox: Actor<_>) =
                 if node<m then
                     smallerLeaf.RemoveAt(mi);
                     smallerLeaf.Add(node)
-    
-        // Checking the routing table KIRIK PART
+            
+            // Checking the routing table KIRIK PART
             samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(i, b));
-            if int(string(routingTable.[samePrefix].[toBase4String(string(i),b).Chars(samePrefix)]))=(-1) then
-                routingTable.[samePrefix].[toBase4String(string(i),b).Chars(samePrefix)]<-i
+            let mutable x = toBase4String(string(i), b);
+            x <- int(string(x.[samePrefix]));
+            if int(string(routingTable.[samePrefix].[x]))=(-1) then
+                routingTable.[samePrefix].[x]<-i 
     
     //Pastry Node actor loop    
     let rec loop () = actor {
@@ -409,24 +368,114 @@ let PastryNode(mailbox: Actor<_>) =
     }
     loop ()               
 
+let swap (a: List<int>) x y =
+    let tmp = a.[x]
+    a.[x] <- a.[y]
+    a.[y] <- tmp
+
+
+let master (mailbox: Actor<_>) = 
+    let rec masterloop() = actor{
+        let! msg =  mailbox.Receive ()
+        let b = ceil( Math.Log(double(numNodes)) / Math.Log(double(4)))  |> int
+        let nodeIDSpace = Math.Pow(float(4), float(b)) |> int 
+        let mutable randomList = new List<int>()
+        let mutable groupOne = new List<int>()
+        let mutable groupOneSize = 0
+
+        printfn "%d" nodeIDSpace
+        if numNodes <= 1024 then 
+            groupOneSize <- numNodes
+        else 
+            groupOneSize <- 1024
+        
+        let mutable i = -1
+        let mutable numHops = 0
+        let mutable numJoined = 0
+        let mutable numNotInBoth = 0
+        let mutable numRouteNotInBoth = 0
+        let mutable numRouted = 0
+
+        let mutable rnd = random.Next(nodeIDSpace)
+        for i = 0 to nodeIDSpace-1 do 
+            randomList.Add(i)
+        
+        for i = 0 to nodeIDSpace-1 do 
+            swap randomList i (random.Next(nodeIDSpace))
+        
+        printfn "%A and size is %d" randomList randomList.Count
+
+        for i = 0 to groupOneSize - 1 do 
+            groupOne.Add(randomList.[i])
+        
+        for i = 0 to numNodes do
+            let properties = string(i)
+            let actor = spawn system properties PastryNode
+            pastryNodes.Add(actor)
+            // spawn the actors of type Pastry
+
+        match msg with
+        | "Start" -> 
+            for i = 0 to groupOneSize
+                pastryNodes.[randomList.[i]]<! InitialJoin(groupOne)                
+                // do initial join on random list of actors
+        | "FinishedJoining" ->
+            numJoined += 1
+            if numJoined = groupOneSize then 
+                if numJoined >= numNodes then 
+                    self <| StartRouting
+                else 
+                    self <| SecondaryJoin
+            
+            if numJoined > groupOneSize then 
+                if numJoined == numNodes then 
+                    self <| StartRouting
+                else 
+                    self <| SecondaryJoin
+        | "SecondaryJoin" ->
+                let mutable startID = randomList(random.next(numJoined))
+                // call the actor
+        | "StartRouting" -> 
+            // broadcast message
+            printfn "Routing started"
+        | "NotInBoth" ->
+            numNotInBoth += 1
+        | RouteFinish (requestFrom, requestTo, hops)->
+            numRouted <- numRouted + 1
+            numHops <- numHops + 1
+            for i = 0 to 10 do 
+                if numRouted*10 == numNodes * numRequests * i then 
+                    for j = 1 to i do 
+                        printfn "."
+                    printfn "|"
+            
+            if numRouted >= numNodes * numRequests then 
+                printfn "\n"
+                prinfn "Total Routes -> %d and Total Hops %d" numRouted numHops 
+                prinfn "Average hops per Route -> %A" numHops / numRouted
+        | "RouteNotInBoth" -> 
+            numRouteNotInBoth <- numRouteNotInBoth+1
+
+        flag <- true
+        return! masterloop ()
+    }      
+    masterloop()
+
+
 let main (args:string []) =
-    numNodes <- (int) args.[1]; // Setting the value of number of nodes
-    numRequests <- (int) args.[2]; // Setting the value f number of requests
-    // let mast = spawn Pastry "master" master  // Spawning master actor  
-    // masterActor.Add(mast) // Adding master reference to the master actor system
-    // masterActor.[0] <! MasterMessage (numNodes, numRequests) // Sending messages to the master actor about topology
+    numNodes <-(int) args.[1] //Setting the value of number of nodes
+    numRequests <- (int) args.[2]
 
-    // while not flag do 
-    //     wait()
-    // let mutable delay = 0
-
-    // doublewait()
-
-    // time.Stop()
-    // printfn "Time taken for %A topology to converge for %A is %f" t algorithm time.Elapsed.TotalMilliseconds
+    let masterActor = spawn system "master" master   
+    masterActor <! Master(numNodes, numRequests)
+    
+    while not flag do
+        let mutable i = 0
+        i <- i+1
+    
     0
 let args = fsi.CommandLineArgs 
+printfn "%d" args.Length
 match args.Length with //Checking number of parameters
     | 3 -> main args    
-    | _ ->  failwith "You need to pass two parameters!"
-
+    | _ ->  main args
