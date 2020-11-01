@@ -161,12 +161,12 @@ let pastryNode (mailbox: Actor<_>) =
     let mutable b=0;
 
 
-    let rec pasteryloop() = actor{
+    let rec pastryloop() = actor{
         let! msg =  mailbox.Receive ()
+        let sender = mailbox.Sender();
         // printfn "%A" n
         let mutable dummy = 0
         // printfn "dummy"
-
         match msg with
         |   PastryInit(nodes, requests, identify, baseRecieved) ->
                 let mutable temp=new List<int>();
@@ -184,7 +184,7 @@ let pastryNode (mailbox: Actor<_>) =
                 groupOne.RemoveAt(groupOne.IndexOf(myID)); //  Removes current node's ID from group one in order to make leaf set
                 // //addBuffer(groupOne);
                 printfn "myid %d" myID
-                
+                // let sender=mailbox.Sender();
                 addBuffer(groupOne, largerLeaf, smallerLeaf, myID, routingTable);
                 printfn "%d" b
                 for i = 0 to b-1 do
@@ -193,10 +193,11 @@ let pastryNode (mailbox: Actor<_>) =
                     let mutable xthdigit = System.Char.GetNumericValue(x.[i]) |> int
                     routingTable.[i].[xthdigit] <- myID;
                 // flag <- true 
-
-        return! pasteryloop ()
+                // sender <! FinishedJoining
+                
+        return! pastryloop ()
     }      
-    pasteryloop()
+    pastryloop()
 
 
 let master (mailbox: Actor<_>) = 
@@ -236,7 +237,9 @@ let master (mailbox: Actor<_>) =
             let properties = string(i)
             let actor = spawn Pastry properties pastryNode
             pastryNodes.Add(actor)
-        
+
+        for i = 0 to groupOneSize - 1 do 
+            pastryNodes.[randomList.[i]] <! PastryInit(numNodes, numRequests, randomList.[i], b)
             // spawn the actors of type Pastry
         printfn "size of randomlist %d" randomList.Count
         printfn "size of groupOne %d" groupOne.Count
@@ -248,22 +251,26 @@ let master (mailbox: Actor<_>) =
             for i = 0 to groupOneSize-1 do
                 let cloneofgroupone = clone(groupOne)
                 // printfn "random actor number %d" randomList.[i]
-                pastryNodes.[randomList.[i]] <! PastryInit(numNodes, numRequests, randomList.[i], b)
-                pastryNodes.[randomList.[i]]<! InitialJoin(cloneofgroupone, randomList.[i])                
+
+                pastryNodes.[randomList.[i]]<! InitialJoin(cloneofgroupone, randomList.[i]) 
+                mailbox.Self <! FinishedJoining 
+                // pastryNodes.[randomList.[i]]<! FinishedJoining               
                 // do initial join on random list of actors
         | FinishedJoining ->
             numJoined <- numJoined + 1
-            if numJoined = groupOneSize then 
-                if numJoined >= numNodes then 
-                    mailbox.Self <! StartRouting
-                else 
-                    mailbox.Self <! SecondaryJoin
+            printfn "in finished join"
+            // if numJoined = groupOneSize then 
+            //     if numJoined >= numNodes then 
+            //         mailbox.Self <! StartRouting
+            //     else 
+            //         mailbox.Self <! SecondaryJoin
             
-            if numJoined > groupOneSize then 
-                if numJoined = numNodes then 
-                    mailbox.Self <! StartRouting
-                else 
-                    mailbox.Self <! SecondaryJoin
+            // if numJoined > groupOneSize then 
+            //     if numJoined = numNodes then 
+            //         mailbox.Self <! StartRouting
+            //     else 
+            //         mailbox.Self <! SecondaryJoin
+
         | SecondaryJoin ->
                 let mutable startID = randomList.[random.Next(numJoined)]
                 pastryNodes.[startID] <! Route("Join", startID, randomList.[numJoined], -1)
@@ -301,8 +308,9 @@ let main (args:string []) =
     numNodes <-(int) args.[1] //Setting the value of number of nodes
     numRequests <- (int) args.[2]
     printfn "number of nodes %d" numNodes
-    let masterActor = spawn Pastry "master" master   
-    masterActor <! Start("start")
+    let masterActorNode = spawn Pastry "master" master 
+    masterActor.Add(masterActorNode)  
+    masterActor.[0] <! Start("start")
     
     while not flag do
         let mutable i = 0
