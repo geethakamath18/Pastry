@@ -169,7 +169,7 @@ let addNode(node: int, smallerLeaf: List<int>, largerLeaf: List<int>, myID, rout
             if smallerLeaf.Count<4 then
                 smallerLeaf.Add(node); // If leaf set isn't full, add node to leaf set
             else
-                let m, mi=getMax(smallerLeaf);
+                let m, mi=getMin(smallerLeaf);
                 if node<m then
                     smallerLeaf.RemoveAt(mi);
                     smallerLeaf.Add(node)
