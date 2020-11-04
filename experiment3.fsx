@@ -14,7 +14,7 @@ let random = Random()
 // let m=int(2.0**128.0)-1 //Maximum nodeID possible
 let mutable r=0; // Random ID generated
 let Pastry = System.create "system" <| Configuration.defaultConfig()
-let system = System.create "system" <| Configuration.defaultConfig()
+// let system = System.create "system" <| Configuration.defaultConfig()
 // let mutable nodeGenerated = new List<int>();
 let mutable numNodes=0;
 let mutable numRequests=0;
@@ -24,18 +24,12 @@ let mutable pastryNodes=new List<IActorRef>();
 let mutable flag=false; 
 let mutable getRandom=0;
 let mutable t= new List<int>();
-
-// added by keerthi
-let mutable b = 0
-let swap (a: List<int>) x y =
-    let tmp = a.[x]
-    a.[x] <- a.[y]
-    a.[y] <- tmp
+let mutable mapofinitActors = Map.empty<string, IActorRef>
 
 type ActorMessageType = 
     |   PastryInit of int * int * int * int
     |   Receive of string
-    |   InitialJoin of List<int> * int
+    |   InitialJoin of List<int>
     |   Route of string * int * int * int
     |   AddRow of int * List<int>
     |   AddLeaf of List<int>
@@ -48,39 +42,20 @@ type ActorMessageType =
     |   StartRouting
     |   NotInBoth
     |   RouteNotInBoth
-
-let checkPrefix(string1: string, string2: string)=
-        let mutable j= 0;   // Changed by keerthi on 1st novemebr
-        while j<string1.Length && string1.Chars(j) = string2.Chars(j) do
-            j<-j+1
-        j-1
-
-let display = 
-    printfn "yet to be completed"
-
-// Function to convert a base 10 integer to a base 4 number and then converting it to a string
-let toBase4String( num:int, length:int)=
-    let mutable res="";
-    let targetBase=4;
-    let mutable value=num;
-    res<-string "0123456789ABCDEF".[value%targetBase]+res;
-    value<-targetBase;
-    while value>0 do
-        res<-string "0123456789ABCDEF".[value%targetBase]+res;
-        value<-value/targetBase;
-    let diff= length-res.Length; // Adding zeroes if the ID isn't long enough 
-    if diff>0 then
-        let mutable j=0;
-        while j<diff do
-            res<-res+string 0; // Converting 0 to string and padding the ID with it
-            j<-j+1;
-    res
+    |   Init
 
 let clone(l: List<int>)=
     let res= List<int>();
     for i in l do
         res.Add(i)
     res
+
+let mutable b = 0
+
+let swap (a: List<int>) x y =
+    let tmp = a.[x]
+    a.[x] <- a.[y]
+    a.[y] <- tmp
 
 // Function to get largest element in an array/list
 let getMax(a:List<int>)=
@@ -111,50 +86,131 @@ let appendLists(l1 : List<int>,l2: List<int>) =
         l1.Add(i)
     l1
 
-    // Function to create Leaf Set 
-let addBuffer(all: List<int>, largerLeaf: List<int>, smallerLeaf: List<int>, myID, routingTable: List<List<int>>)=
-    for i in all do
-        // Adding node to larger leaf set
-        if i>myID && not (largerLeaf.Contains(i)) then
-            if largerLeaf.Count<4 then // If leaf set isn't full, add node to leaf set
-                largerLeaf.Add(i);
-            else 
-                let m, mi=getMax(largerLeaf);
-                if i<m then
-                    largerLeaf.RemoveAt(mi);
+let pastryNode (mailbox: Actor<_>) = 
+
+    let mutable smallerLeaf = new List<int>();
+    let mutable largerLeaf = new List<int>();
+    let mutable numOfBack=0;
+    // let sender=mailbox.Sender();
+    // let mutable numRequests=0;
+    // let mutable numNodes=0;
+    let mutable routingTable= new List<List<int>>();
+    let mutable idSpace=0;
+    let mutable myID=0;
+    let mutable samePrefix =0;
+    let mutable b=0;
+
+    let toBase4String( num:int, length:int)=
+        let mutable res="";
+        let targetBase=4;
+        let mutable value=num;
+        // res<-string "0123456789ABCDEF".[value%targetBase]+res;
+        value<-targetBase;
+        while value>0 do
+            res<-string "0123456789ABCDEF".[value%targetBase]+res;
+            value<-value/targetBase;
+        let diff= length-res.Length; // Adding zeroes if the ID isn't long enough 
+        if diff>0 then
+            let mutable j=0;
+            while j<diff do
+                res<-string 0+res; // Converting 0 to string and padding the ID with it
+                j<-j+1;
+        res
+    let checkPrefix(string1: string, string2: string)=
+        let mutable j= 0;   // Changed by keerthi on 1st novemebr
+        while j<string1.Length && string1.Chars(j) = string2.Chars(j) do
+            j<-j+1
+        j-1  // change this to j and check
+
+    let addBuffer(all: List<int>)=
+        for i in all do
+            // printfn "this is bla bla"
+            // Adding node to larger leaf set
+            if i>myID && not (largerLeaf.Contains(i)) then
+                if largerLeaf.Count<4 then // If leaf set isn't full, add node to leaf set
+                    printfn "inside if if "
                     largerLeaf.Add(i);
-        // Adding node to smaller leaf set
-        else if i<myID  && not(smallerLeaf.Contains(i)) then
-            if smallerLeaf.Count < 4 then // If leaf set isn't full, add node to leaf set
-                smallerLeaf.Add(i);
-            else 
-                let m, mi=getMin(smallerLeaf);
-                if i<m then
-                    smallerLeaf.RemoveAt(mi);
+                else 
+                    let m, mi=getMax(largerLeaf);
+                    if i<m then
+                        printfn "inside elsif if "
+                        largerLeaf.RemoveAt(mi);
+                        largerLeaf.Add(i);
+            // Adding node to smaller leaf set
+            else if i<myID  && not(smallerLeaf.Contains(i)) then
+                if smallerLeaf.Count < 4 then // If leaf set isn't full, add node to leaf set
                     smallerLeaf.Add(i);
-        
-        // Checking the routing table KIRIK PART
-        let mutable dd = toBase4String(myID, b)
-        let mutable ib = toBase4String(i, b)
-        // printfn "tobse4string of dd %A and ib is %A" dd ib
-        let samePrefix = checkPrefix(toBase4String(myID, b), toBase4String(i, b)); // Performing prefix matching
-        
-        //changed by keerthi
-        let mutable x = toBase4String(i, b);
-        
-        //changed by keerthi
-        // let mutable xtonum = int(string(x.[samePrefix]));
-        let xtonum = int(string(x.[samePrefix])); // Index of string after which prefix differs 
-        // printfn "xtonum %d" xtonumz
-        // printfn "same prefix for %A and %A is %A " dd ib samePrefix
-         // printfn "some random %A" routingTable.[samePrefix].[xtonum]
-        // printfn "before samePrefix is %d and xtoNum is %d and routingtable count is %d and cols %d" samePrefix xtonum routingTable.Count routingTable.[0].Count
-        if samePrefix < routingTable.Count && int(string(routingTable.[samePrefix].[xtonum]))=(-1) then
+                else 
+                    let m, mi=getMin(smallerLeaf);
+                    if i<m then
+                        smallerLeaf.RemoveAt(mi);
+                        smallerLeaf.Add(i);
+            
+            // Checking the routing table KIRIK PART
+            // let mutable dd = toBase4String(myID, b)
+            // let mutable ib = toBase4String(i, b)
+            // printfn "tobse4string of dd %A and ib is %A" dd ib
+            let samePrefix = checkPrefix(toBase4String(myID, b), toBase4String(i, b)); // Performing prefix matching
+            // printfn "checkprefix is %d" samePrefix
+            //changed by keerthi
+            let mutable x = toBase4String(i, b);
+            
+            //changed by keerthi
+            // let mutable xtonum = int(string(x.[samePrefix]));
+            let xtonum = int(string(x.[samePrefix])); // Index of string after which prefix differs 
+           
+            // printfn "xtonum %d" xtonum
+            // printfn "same prefix for %A and %A is %A " dd ib samePrefix
+             // printfn "some random %A" routingTable.[samePrefix].[xtonum]
+            // printfn "before samePrefix is %d and xtoNum is %d and routingtable count is %d and cols %d" samePrefix xtonum routingTable.Count routingTable.[0].Count
+            if int(string(routingTable.[samePrefix].[xtonum]))=(-1) then
+                // printfn "in side if keerthi"
+                // printfn "after samePrefix is %d and xtoNum is %d" samePrefix xtonum
+                routingTable.[samePrefix].[xtonum]<-i   // Addinhg entries to routing table if it is empty
+            // printfn "routing table is %A and id is %d" routingTable myID
 
-            // printfn "after samePrefix is %d and xtoNum is %d" samePrefix xtonum
-            routingTable.[samePrefix].[xtonum]<-i   // Addinhg entries to routing table if it is empty
+    let addBuffer(all: List<int>)=
+        for i in all do
+            // Adding node to larger leaf set
+            if i>myID && not (largerLeaf.Contains(i)) then
+                if largerLeaf.Count<4 then // If leaf set isn't full, add node to leaf set
+                    largerLeaf.Add(i);
+                else 
+                    let m, mi=getMax(largerLeaf);
+                    if i<m then
+                        largerLeaf.RemoveAt(mi);
+                        largerLeaf.Add(i);
+            // Adding node to smaller leaf set
+            else if i<myID  && not(smallerLeaf.Contains(i)) then
+                if smallerLeaf.Count < 4 then // If leaf set isn't full, add node to leaf set
+                    smallerLeaf.Add(i);
+                else 
+                    let m, mi=getMin(smallerLeaf);
+                    if i<m then
+                        smallerLeaf.RemoveAt(mi);
+                        smallerLeaf.Add(i);
+            
+            // Checking the routing table KIRIK PART
+            // let mutable dd = toBase4String(myID, b)
+            // let mutable ib = toBase4String(i, b)
+            // printfn "tobse4string of dd %A and ib is %A" dd ib
+            let samePrefix = checkPrefix(toBase4String(myID, b), toBase4String(i, b)); // Performing prefix matching
+            
+            //changed by keerthi
+            let mutable x = toBase4String(i, b);
+            
+            //changed by keerthi
+            // let mutable xtonum = int(string(x.[samePrefix]));
+            let xtonum = int(string(x.[samePrefix])); // Index of string after which prefix differs 
+            // printfn "xtonum %d" xtonumz
+            // printfn "same prefix for %A and %A is %A " dd ib samePrefix
+             // printfn "some random %A" routingTable.[samePrefix].[xtonum]
+            // printfn "before samePrefix is %d and xtoNum is %d and routingtable count is %d and cols %d" samePrefix xtonum routingTable.Count routingTable.[0].Count
+            if int(string(routingTable.[samePrefix].[xtonum]))=(-1) then
 
-let addNode(node: int, smallerLeaf: List<int>, largerLeaf: List<int>, myID, routingTable: List<List<int>> )=
+                // printfn "after samePrefix is %d and xtoNum is %d" samePrefix xtonum
+                routingTable.[samePrefix].[xtonum]<-i   // Addinhg entries to routing table if it is empty
+    let addNode(node: int)=
         // Adding node to larger leaf set
         if node< myID && not(largerLeaf.Contains(node)) then
             if largerLeaf.Count<4 then
@@ -182,28 +238,10 @@ let addNode(node: int, smallerLeaf: List<int>, largerLeaf: List<int>, myID, rout
             let xtoIntger = int(string(x.[samePrefix]));
             if int(string(routingTable.[samePrefix].[xtoIntger]))=(-1) then
                 routingTable.[samePrefix].[xtoIntger]<- node   // changed by keerthi
-
-let pastryNode (mailbox: Actor<_>) = 
-
-    let mutable smallerLeaf = new List<int>();
-    let mutable largerLeaf = new List<int>();
-    let mutable numOfBack=0;
-    // let sender=mailbox.Sender();
-    // let mutable numRequests=0;
-    // let mutable numNodes=0;
-    let mutable routingTable= new List<List<int>>();
-    let mutable idSpace=0;
-    let mutable myID=0;
-    let mutable samePrefix =0;
-    let mutable b=0;
-
-
     let rec pastryloop() = actor{
         let! msg =  mailbox.Receive ()
         let sender = mailbox.Sender();
-        // printfn "%A" n
-        let mutable dummy = 0
-        // printfn "dummy"
+      
         match msg with
         |   PastryInit(nodes, requests, identify, baseRecieved) ->
                 let mutable temp=new List<int>();
@@ -215,14 +253,16 @@ let pastryNode (mailbox: Actor<_>) =
                 idSpace <- int(4.00**float(b)); 
                 for i in [0 .. b] do
                     routingTable.Add(clone(temp)); 
-                // printfn "inside pastryInit %d" myID
-        |   InitialJoin(groupOne: List<int>, id) ->
-                //  myID <- id
+                // printfn "myID is %d" myID
+        |   InitialJoin(groupOne: List<int>) ->
+                let mmm = groupOne.IndexOf(myID)
+                printfn "index of groupone %d and its length %d and myID is %d"  mmm groupOne.Count myID
                 groupOne.RemoveAt(groupOne.IndexOf(myID)); //  Removes current node's ID from group one in order to make leaf set
                 // //addBuffer(groupOne);
                 // printfn "myid %d" myID
                 // let sender=mailbox.Sender();
-                addBuffer(groupOne, largerLeaf, smallerLeaf, myID, routingTable);
+                printfn "checking error"
+                addBuffer(groupOne);
                 // printfn "%d" b
                 for i = 0 to b-1 do
                     let mutable x = toBase4String(myID, b);
@@ -230,44 +270,38 @@ let pastryNode (mailbox: Actor<_>) =
                     let mutable xthdigit = System.Char.GetNumericValue(x.[i]) |> int
                     routingTable.[i].[xthdigit] <- myID;
                 // flag <- true 
+                // printfn "routing table is %A and myID is %d" routingTable myID
                 sender <! FinishedJoining
-
-        |   Route(messageRoute: string, requestFrom: int, requestTo: int, hops: int) -> // CHANGED
-                match messageRoute with
-                
+        |   Route(messageRoute: string, requestFrom: int, requestTo: int, hops: int) ->
+                match messageRoute with 
                 |   "Join" ->
                     let mutable o=0;
                     let mutable p=0;
                     let mutable diff=0;
-                    let mutable nearest = -1;
+
                     samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(requestTo, b));
-                    // printfn "in join "
-                    // lets keep it common 
-                    let m, mi = getMin(smallerLeaf); // Get index of smallest element in list and its index
-                    let o, p = getMax(largerLeaf) // Get index of largest element in list and its index
-
-                     // added by keerthi
-                    let mutable indexToroutingTable = toBase4String(requestTo, b);
-                    let intIndex = int(string(indexToroutingTable.[samePrefix]));
-                    printfn "myId is %d and routingTable is %A" myID routingTable
-
+ 
                     if hops = -1 && samePrefix>0 then // If hops =-1, then node has just joined
-                        for i in [0 .. samePrefix] do
+                        for i in [0 .. samePrefix-1] do
                             t <- clone(routingTable.[i])
-
-                            printfn "what is routing table of i %A" routingTable
+                            printfn "cloned t is %A" t
+                            printfn "what is routing table of %d %A" i routingTable
                             printfn "request to is %d" requestTo
                             printfn "myId is %d and routingTable is %A" myID routingTable
-                            pastryNodes.[requestTo]<! AddRow(i,t); // Adding rows to routing table to nearest node
-                    pastryNodes.[requestTo] <! AddRow(samePrefix, clone(routingTable.[samePrefix]))
-                    // shifting this to top
-                    // changed by keerthi
-                    // m, mi= getMin(smallerLeaf); // Get index of smallest element in list and its index
-                    // o, p= getMax(largerLeaf) // Get index of largest element in list and its index
-                    // printfn "myID %d" myID
-                    if (smallerLeaf.Count>0 && requestTo>= m && requestTo<=myID) ||(largerLeaf.Count>0 && requestTo<= o && requestTo>=myID) then
+                            mapofinitActors.[string(requestTo)] <! AddRow(i,t)
+                            // pastryNodes.[requestTo]<! AddRow(i,t); 
+                    mapofinitActors.[string(requestTo)] <! AddRow(samePrefix,clone(routingTable.[samePrefix]))  
+
+                    let minimum, minIndex = getMin(smallerLeaf); // Get index of smallest element in list and its index
+                    let maximum, maxIndex = getMax(largerLeaf) // Get index of largest element in list and its index
+
+                    let mutable indexToroutingTable = toBase4String(requestTo, b);
+                    let rowRouting = int(string(indexToroutingTable.[samePrefix]));
+
+                    if (smallerLeaf.Count>0 && requestTo>= minimum && requestTo<=myID) ||(largerLeaf.Count>0 && requestTo<= maximum && requestTo>=myID) then
                         diff <- idSpace+10;
                         printfn "in if"
+                        let mutable nearest = -1;
                         if requestTo<myID then
                             for i in smallerLeaf do // Check if node is in smaller set and checking which node is closest
                                 if abs(requestTo-i)< diff then
@@ -278,88 +312,77 @@ let pastryNode (mailbox: Actor<_>) =
                                 if abs(requestTo-i)< diff then
                                     nearest <-i;
                                     diff <- abs(requestTo-i);
-                    
+
                         if abs(requestTo - myID)>diff then //If node does not exist in the leaf set
-                            printfn "in abs and nearset is %d and pastry count is %d" nearest pastryNodes.Count
-                            pastryNodes.[nearest]<! Route(messageRoute, requestFrom, requestTo, hops+1)
+                            // printfn "in abs and nearset is %d and pastry count is %d" nearest pastryNodes.Count
+                            // pastryNodes.[nearest]<! Route(messageRoute, requestFrom, requestTo, hops+1)
+                            mapofinitActors.[string(nearest)] <! Route(messageRoute, requestFrom, requestTo, hops+1)
                         else
                             printfn "in else after abs and restto is %d" requestTo
                             let mutable allLeaf = new List<int>(); // Creating a leaf set
                             allLeaf.Add(myID);                    // Adding current node to leaf set
                             allLeaf <- appendLists(allLeaf,smallerLeaf);     // Adding smaller leaf set
                             allLeaf <- appendLists(allLeaf, largerLeaf);   // Adding larger leaf set
-                            pastryNodes.[requestTo] <!AddLeaf(allLeaf); //Updating the leafset of the node closest to the node joining
-                    
-                    // changed by keerthi
-                    // let o,p = getMin(smallerLeaf) // I am not sure why was this outside the indentation
+                            mapofinitActors.[string(requestTo)] <! AddLeaf(allLeaf); //Updating the leafset of the node closest to the node joining
 
-                    // changed by keerthi
-                    else if(smallerLeaf.Count<4 && smallerLeaf.Count>0 && requestTo<m) then // If the smallest element in the smallerLeaf set is greater than the current node ID, route message to it
+                    else if(smallerLeaf.Count<4 && smallerLeaf.Count>0 && requestTo<minimum) then // If the smallest element in the smallerLeaf set is greater than the current node ID, route message to it
                         printfn "in else if 1"
-                        pastryNodes.[m]<! Route(messageRoute, requestFrom, requestTo, hops+1)
-                    
-                    // changed by keerthi 
-                    //o,p <- getMax(largerLeaf)  // I am not sure why was this outside the indentation
+                        mapofinitActors.[string(minimum)] <! Route(messageRoute, requestFrom, requestTo, hops+1)
 
-                    else if(largerLeaf.Count<4 && largerLeaf.Count>0 && requestTo> o) then // If the largest element in the largerLeaf set is smaller than the current node ID, route message to it
+                    else if(largerLeaf.Count<4 && largerLeaf.Count>0 && requestTo> maximum) then // If the largest element in the largerLeaf set is smaller than the current node ID, route message to it
                         printfn "in else if 2"
-                        pastryNodes.[o]<! Route(messageRoute, requestFrom, requestTo, hops+1)
-                    
+                        mapofinitActors.[string(maximum)] <! Route(messageRoute, requestFrom, requestTo, hops+1) 
+
                     else if ((smallerLeaf.Count = 0 && requestTo<myID) || (largerLeaf.Count = 0 && requestTo>myID) ) then
                         printfn "in else if 3"
                         let mutable allLeaf = new List<int>();
                         allLeaf.Add(myID);
                         allLeaf <- appendLists(allLeaf,smallerLeaf);
                         allLeaf <- appendLists(allLeaf, largerLeaf);
-                        pastryNodes.[requestTo] <!AddLeaf(allLeaf);
+                        mapofinitActors.[string(requestTo)] <!AddLeaf(allLeaf);      
 
-                        // why these two lines are outside elseif??  changed by keerthi
-                    //let mutable x = toBase4String(requestTo, b);
-                    //x <- int(string(x.[samePrefix]));
+                    else if myID <> routingTable.[samePrefix].[rowRouting] && routingTable.[samePrefix].[rowRouting] <> -1 then
+                        printfn "in else if 4"
+                        printfn "calling id is %d and to id is %d" myID routingTable.[samePrefix].[rowRouting] 
 
-                     // changed by keerthi
-                    else if routingTable.[samePrefix].[intIndex] <> -1 then
-                        // printfn "in else if 4"
-                        pastryNodes.[routingTable.[samePrefix].[intIndex]]<!Route(messageRoute, requestFrom, requestTo, hops+1)
-
+                        mapofinitActors.[string(routingTable.[samePrefix].[rowRouting])]<!Route(messageRoute, requestFrom, requestTo, hops+1)
+                    
                     else if requestTo>myID then
                         printfn "in else if 5"
                         // changed by keerthi
                         let m,mi = getMax(largerLeaf)
-                        pastryNodes.[m]<! Route(messageRoute,requestFrom, requestTo, hops+1)
+                        mapofinitActors.[string(m)]<! Route(messageRoute,requestFrom, requestTo, hops+1)
                         masterActor.[0] <! NotInBoth
 
                     else if requestTo<myID then
                         printfn "in else if 6"
                         // changed by keerthi
                         let o,p = getMin(smallerLeaf)
-                        pastryNodes.[o]<! Route(messageRoute,requestFrom, requestTo, hops+1)
+                        mapofinitActors.[string(o)]<! Route(messageRoute,requestFrom, requestTo, hops+1)
+                        
                         masterActor.[0] <! NotInBoth
                     
                     else
                         printfn("Not Possible")
-
                 |   "Route" ->
-                    let mutable o=0;
-                    let mutable p=0;
+
                     let mutable diff=0;
-                    let mutable nearest= -1;
                     // printfn "in route "
                     if myID=requestTo then
                         masterActor.[0] <! RouteFinish(requestFrom,requestTo,hops+1)
-                        // printfn "in Route"
                     else 
                         samePrefix <- checkPrefix(toBase4String(myID, b), toBase4String(requestTo, b));
                         // printfn "samePrefix "
-                        let m, mi= getMin(smallerLeaf); // Get index of smallest element in list and its index
-                        let o, p= getMax(largerLeaf) // Get index of largest element in list and its index
+                        let minimum, minIndex = getMin(smallerLeaf); // Get index of smallest element in list and its index
+                        let maximum, maxIndex= getMax(largerLeaf) // Get index of largest element in list and its index
 
                         let mutable x = toBase4String(requestTo, b);
-                        let xtoIntobasefour = int(string(x.[samePrefix]));
+                        let xtoRow = int(string(x.[samePrefix])); 
 
-                        if (smallerLeaf.Count>0 && requestTo>= m && requestTo<=myID) ||(largerLeaf.Count>0 && requestTo<= o && requestTo>=myID) then
+                        if (smallerLeaf.Count>0 && requestTo>= minimum && requestTo<=myID) ||(largerLeaf.Count>0 && requestTo<= maximum && requestTo>=myID) then
                             diff <- idSpace+10;
                             // printfn "in if of else part and diff is %d" diff
+                            let mutable nearest= -1;
                             if requestTo<myID then
                                 for i in smallerLeaf do // Check if node is in smaller set and checking which node is closest
                                     if abs(requestTo-i)< diff then
@@ -372,34 +395,25 @@ let pastryNode (mailbox: Actor<_>) =
                                         diff <- abs(requestTo-i);
                         
                             if abs(requestTo - myID)>diff then //If node does not exist in the leaf set
-                                pastryNodes.[nearest]<! Route(messageRoute, requestFrom, requestTo, hops+1)
+                                mapofinitActors.[string(nearest)]<! Route(messageRoute, requestFrom, requestTo, hops+1)
                             else
                                masterActor.[0] <! RouteFinish(requestFrom, requestTo, hops+1)
-
-                        // Doubt   Changed by keerthi
-                        // o,p <- getMin(smallerLeaf)  // same thing
-
-                        // changed by keerthi
-                        else if(smallerLeaf.Count<4 && smallerLeaf.Count>0 && requestTo<m) then // If the smallest element in the smallerLeaf set is greater than the current node ID, route message to it
+                            
+                        else if(smallerLeaf.Count<4 && smallerLeaf.Count>0 && requestTo<minimum) then // If the smallest element in the smallerLeaf set is greater than the current node ID, route message to it
                             printfn "inelse if 1"
-                            pastryNodes.[m]<! Route(messageRoute, requestFrom, requestTo, hops+1)
-                        
-                        // // // here again  changed by keerthi 
-                        // // // o,p <- getMax(largerLeaf)   
-                        else if(largerLeaf.Count<4 && largerLeaf.Count>0 && requestTo> o) then // If the largest element in the largerLeaf set is smaller than the current node ID, route message to it
+                            mapofinitActors.[string(minimum)]<! Route(messageRoute, requestFrom, requestTo, hops+1)
+
+                        else if(largerLeaf.Count<4 && largerLeaf.Count>0 && requestTo> maximum) then // If the largest element in the largerLeaf set is smaller than the current node ID, route message to it
                             printfn "inelse if 2"
-                            pastryNodes.[o]<! Route(messageRoute, requestFrom, requestTo, hops+1)
-                        
+                            mapofinitActors.[string(maximum)]<! Route(messageRoute, requestFrom, requestTo, hops+1) 
+
                         else if ((smallerLeaf.Count = 0 && requestTo<myID) || (largerLeaf.Count = 0 && requestTo>myID) ) then
                             printfn "inelse if 3"
-                            masterActor.[0] <! RouteFinish(requestFrom, requestTo, hops+1)
-                        
-                        // // // changed by keerthi 
-                        // // // let mutable x = toBase4String(requestTo, b);
-                        // // // x <- int(string(x.[samePrefix]));
-                        else if routingTable.[samePrefix].[xtoIntobasefour] <> -1 then
+                            masterActor.[0] <! RouteFinish(requestFrom, requestTo, hops+1)  
+
+                        else if routingTable.[samePrefix].[xtoRow] <> -1 then
                             // printfn "inelse if 4"
-                            pastryNodes.[routingTable.[samePrefix].[xtoIntobasefour]] <! Route(messageRoute, requestFrom, requestTo, hops+1)
+                            mapofinitActors.[string(routingTable.[samePrefix].[xtoRow])] <! Route(messageRoute, requestFrom, requestTo, hops+1)
 
                         else if requestTo>myID then
                             printfn "inelse if 5"
@@ -413,22 +427,22 @@ let pastryNode (mailbox: Actor<_>) =
                             masterActor.[0]<! NotInBoth
                         
                         else
-                            printfn("Not Possible")
-                | _ -> printfn "Message not recognised"
+                            printfn("Not Possible")             
+
         |   Receive(messageReceived) ->
                 match messageReceived with
                 |   "StartRouting" ->
                     // printfn "in start routing of pastry node"
                     // printfn " numrequests is %d" numRequests
-                    for i in [1 .. numRequests] do
-                        // printfn "before thread sleep"
-                        // System.Threading.Thread.Sleep(1000);    do not forget to uncomment
+                    let mutable totalNumRequests = float(numRequests) + (float(numRequests) * 0.25) |> int
+                    for i in [1 .. totalNumRequests] do
+                        printfn "before thread sleep"
+                        System.Threading.Thread.Sleep(1000);    // do not forget to uncomment
                         getRandom <- random.Next(numNodes);
-                        pastryNodes.[getRandom] <! Route ("Route", myID, getRandom, int(-1)); //szxdfcgvhjnkml,sdfgvxdfghhgfdgfdgfdsfgbnv gfdghjm
-                        
+                        mailbox.Self <! Route ("Route", myID, getRandom, -1);
         |   AddLeaf(allLeaf) ->
                 printfn "in Add leaf"
-                addBuffer(allLeaf, smallerLeaf, largerLeaf, myID, routingTable);
+                addBuffer(allLeaf);
                 printfn "after add buffer"
                 for i in smallerLeaf do
                     numOfBack <- numOfBack+1;
@@ -438,45 +452,40 @@ let pastryNode (mailbox: Actor<_>) =
                     numOfBack <- numOfBack+1;
                     pastryNodes.[i] <! Update(myID);
                 printfn "after second for loop"
-                for i in[0 .. b] do
+                for i in[0 .. b-1] do
                     for j in [0 .. 3] do
                         if routingTable.[i].[j] <> -1 then
                             numOfBack <- numOfBack+1
                             pastryNodes.[routingTable.[i].[j]] <!Update(myID)
                 printfn "after third for loop"
-                for i in [0 .. b] do
+                for i in [0 .. b-1] do
                     let mutable x = toBase4String(myID, b);
-                    let xtoInte =  int(x.[i]);
+                    let xtoInte =  int(string(x.[i]));
                     printfn "xtointe is %d and i is %d" xtoInte i
                     printfn "routingtable row is %d and routingtable col is %d" routingTable.Count routingTable.[0].Count
                     routingTable.[i].[xtoInte] <- myID
                 printfn "after fourth for loop"
-
         |   AddRow(rowNum, newRow) ->
             for i in [0 .. 3] do
-                // printfn "rowNum is %d and the row is is %d" rowNum routingTable.Count
+                //  printfn "rowNum is %d and the row is is %d" rowNum routingTable.Count
                 if routingTable.[rowNum].[i] = -1 then
                     routingTable.[rowNum].[i] <- newRow.[i];
         |   Update(newNodeID) ->
-                addNode(newNodeID, smallerLeaf, largerLeaf, myID, routingTable);
+                addNode(newNodeID);
                 sender<!"Acknowledgement"
 
         | _ -> printfn "Message not recognised in Recive %A" msg
-                
         return! pastryloop ()
     }      
     pastryloop()
 
-
 let master (mailbox: Actor<_>) = 
-
     b <-ceil( Math.Log(double(numNodes)) / Math.Log(double(4)))  |> int
     let nodeIDSpace = Math.Pow(float(4), float(b)) |> int 
     let mutable randomList = new List<int>()
     let mutable groupOne = new List<int>()
     let mutable groupOneSize = 0
-    printfn "value of b is %d" b
-    printfn "nodeIdSpace %d" nodeIDSpace
+
     if numNodes <= 1024 then 
         groupOneSize <- numNodes
     else 
@@ -489,45 +498,48 @@ let master (mailbox: Actor<_>) =
     let mutable numRouteNotInBoth = 0
     let mutable numRouted = 0
 
-    for i = 0 to numNodes-1 do 
-        randomList.Add(i)
-    
-    for i = 0 to numNodes-1 do 
-        swap randomList i (random.Next(numNodes))
-    
-    printfn "%A and size is %d" randomList randomList.Count
+    printfn "base is %d" b
+    // printfn "%A " mapofinitActors.[string(randomList.[0])]
+    // mapofinitActors.[string(randomList.[0])] <! Receive("keerthi")
+    // mapofinitActors.[string(randomList.[0])] <! PastryInit(numNodes, numRequests, randomList.[i], b)
+    // akka://system/user/0 <!  
 
-    for i = 0 to numNodes - 1 do 
-        groupOne.Add(randomList.[i])
-    
-    for i in [0 .. numNodes-1] do
-        let properties = string(i)
-        let actor = spawn Pastry properties pastryNode
-        pastryNodes.Add(actor)
-
-    for i = 0 to numNodes - 1 do 
-        pastryNodes.[randomList.[i]] <! PastryInit(numNodes, numRequests, randomList.[i], b)
-        // spawn the actors of type Pastry
-    printfn " routing table of some node is %A" pastryNodes.[0]
-    printfn "size of randomlist %d" randomList.Count
-    printfn "size of groupOne %d" groupOne.Count
-    printfn "size of pasteryNode %d" pastryNodes.Count
     let rec masterloop() = actor{
         let! msg =  mailbox.Receive ()
         match msg with
+        | Init -> 
+                printfn "in init"
+                for i = 0 to nodeIDSpace-1 do 
+                    randomList.Add(i)
+    
+                for i = 0 to nodeIDSpace-1 do 
+                    swap randomList i (random.Next(randomList.Count - 1))
+                
+                printfn "%A and size is %d" randomList randomList.Count
+
+                for i = 0 to groupOneSize - 1 do 
+                    groupOne.Add(randomList.[i])
+                
+                for i in [0 .. numNodes-1] do
+                    let properties = string(randomList.[i])
+                    let actor = spawn Pastry properties pastryNode
+                    // let actor = Props.Create(pastryNode)
+                    actor <! PastryInit(numNodes, numRequests, randomList.[i], b)
+                    mapofinitActors <- mapofinitActors.Add(properties, actor)
+                mailbox.Self <! Start("start")
+
         | Start(start)-> 
-            printfn "in master actor start %s" start
+            // printfn "in master actor start %s" start
             for i = 0 to groupOneSize-1 do
                 let cloneofgroupone = clone(groupOne)
-                // printfn "random actor number %d" randomList.[i]
-
-                pastryNodes.[randomList.[i]]<! InitialJoin(cloneofgroupone, randomList.[i]) 
-                
-                // do initial join on random list of actors
+                if not (mapofinitActors.ContainsKey(string(randomList.[i]))) then
+                    printfn "this is the culprit %A" mapofinitActors.[string(randomList.[i])]
+                else 
+                    mapofinitActors.[string(randomList.[i])] <! InitialJoin(cloneofgroupone) 
         | FinishedJoining ->
             numJoined <- numJoined + 1
-            // printfn "in finished join"
-            // printfn "total joined nodes is %d" numJoined
+            printfn "in finished join"
+            printfn "total joined nodes is %d" numJoined
             if numJoined = groupOneSize then 
                 if numJoined >= numNodes then 
                     mailbox.Self <! StartRouting
@@ -539,41 +551,38 @@ let master (mailbox: Actor<_>) =
                     mailbox.Self <! StartRouting
                 else 
                     mailbox.Self <! SecondaryJoin
-
         | SecondaryJoin ->
                 let mutable startID = randomList.[random.Next(numJoined)]
-                printfn "startID is %A" startID
-                pastryNodes.[startID] <! Route("Join", startID, randomList.[numJoined], -1)
+                printfn "startID is %A and its routing table is %A" startID 
+                mapofinitActors.[string(startID)] <! Route("Join", startID, randomList.[numJoined], -1)
                 // call the actor
         | StartRouting -> 
             // broadcast message
-            for i = 0 to groupOneSize - 1 do 
-                pastryNodes.[i] <! Receive("StartRouting") 
+            for i = 0 to numNodes - 1 do 
+                mapofinitActors.[string(randomList.[i])] <! Receive("StartRouting") 
             printfn "Routing started"
         | NotInBoth ->
             numNotInBoth <- numNotInBoth+1
         | RouteFinish (requestFrom, requestTo, hops)->
             numRouted <- numRouted + 1
             numHops <- numHops + hops
-            for i = 0 to 10 do 
+            for i = 0 to 9 do 
                 if numRouted*10 = numNodes * numRequests * i then 
                     for j = 1 to i do 
                         printf "."
                     printf "|"
             // printfn "numRouted is %d and numNodes is %d and numRequests is %d" numRouted numNodes numRequests
-            if numRouted >= numNodes * (numRequests - 10) then 
+            printfn "numRouted is %d and hops is %d" numRouted numHops
+            if numRouted = numNodes * (numRequests) then 
                 printfn "\n"
                 printfn "Total Routes -> %d and Total Hops %d" numRouted numHops 
                 let dummy = numHops / numRouted
                 printfn "Average hops per Route -> %d" dummy
-
-        | RouteNotInBoth -> 
-            numRouteNotInBoth <- numRouteNotInBoth+1
-
+                flag <- true
         return! masterloop ()
     }      
     masterloop()
-
+    
 
 let main (args:string []) =
     numNodes <-(int) args.[1] //Setting the value of number of nodes
@@ -581,7 +590,11 @@ let main (args:string []) =
     printfn "number of nodes %d" numNodes
     let masterActorNode = spawn Pastry "master" master 
     masterActor.Add(masterActorNode)  
-    masterActor.[0] <! Start("start")
+    masterActor.[0] <! Init
+    for i = 0 to 10000000 do 
+        for i = 0 to 1000 do
+            let mutable i = 0
+            i <- i+1 
     
     while not flag do
         let mutable i = 0
